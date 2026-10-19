@@ -761,9 +761,15 @@ def build():
     exe = bytearray(open(os.path.join(ISO, '1ST.BIN'), 'rb').read())
     assert not any(font[REGION - FONT:REGION_END - FONT]), '빈 행이 비어 있지 않다'
     T = load_trans()
+    # 같은 소리(같은 묶음·같은 섹터) 번호에 번역 넘겨주기 — 내보낸 표는 첫 번호만 싣는다(tools/export_tsv.py)
+    tab = [ln.split('\t') for ln in open(os.path.join(ROOT, 'work', 'vc_table.tsv'), encoding='utf-8').read().splitlines()[1:]]
+    sec = {p[0]: (p[0].split('_')[0], p[1]) for p in tab}
+    for k in list(T):
+        for n, key in sec.items():
+            if key == sec.get(k) and n not in T: T[n] = T[k]
     # 글자 → 칸
     TX = load_trans('text_')
-    chars = sorted(set(c for t in list(T.values()) + list(TX.values()) for c in t if c not in ' |' and (c in T and False or True)))
+    chars = sorted(set(c for t in list(T.values()) + list(TX.values()) for c in t if c not in ' |'))
     chars = [c for c in chars if '가' <= c <= '힣' or any(c in t for t in T.values())]   # 화면 글의 부호는 원래 전각 글자 그대로
     slots = free_slots(nfont)
     assert len(chars) <= len(slots), (len(chars), len(slots))
