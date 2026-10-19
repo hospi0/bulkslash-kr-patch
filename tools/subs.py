@@ -57,7 +57,8 @@ def half(ch):
 # ============ 글꼴 칸 ============
 def used_codes():
     """원문 어디서든 쓰일 수 있는 SJIS 2바이트 코드(넉넉히 = 안전) — 이 칸은 안 건드린다"""
-    pat = re.compile(rb'(?:[\x81-\x9f\xe0-\xef][\x40-\x7e\x80-\xfc]){2,}')
+    # 실제 문장만: 가나가 섞이거나(문장) 전각 공백으로 칸 맞춘(스태프 롤·메뉴) 3자 이상 연속. 데이터 바이트가 우연히 SJIS 로 읽히는 건 뺀다.
+    pat = re.compile(rb'(?:[\x81-\x9f\xe0-\xef][\x40-\x7e\x80-\xfc]){3,}')
     out = set()
     for fn in glob.glob(os.path.join(ISO, '*')):
         b = os.path.basename(fn)
@@ -66,6 +67,9 @@ def used_codes():
         d = open(fn, 'rb').read()
         for m in pat.finditer(d):
             s = m.group()
+            try: t = s.decode('cp932')
+            except UnicodeDecodeError: continue
+            if not re.search('[ぁ-ヿ　]', t): continue
             for j in range(0, len(s), 2):
                 out.add(s[j] << 8 | s[j + 1])
     return out
@@ -106,9 +110,11 @@ def glyph(ch):
 
 
 # ============ 번역 → 쪽 ============
-def load_trans():
+def load_trans(prefix=''):
+    """prefix '' = 음성 자막(text_*.tsv 빼고) · 'text_' = 화면 글(브리핑·합류)"""
     T = {}
-    for fn in sorted(glob.glob(os.path.join(ROOT, 'work', 'trans', '*.tsv'))):
+    for fn in sorted(glob.glob(os.path.join(ROOT, 'work', 'trans', prefix + '*.tsv'))):
+        if not prefix and os.path.basename(fn).startswith('text_'): continue
         for ln in open(fn, encoding='utf-8').read().splitlines()[1:]:
             p = ln.split('\t')
             if len(p) >= 3 and p[2].strip():
@@ -142,6 +148,86 @@ def pages_of(t):
             pg = pg[:1]
         pages.append(pg); ls = ls[len(pg):]
     return pages
+
+
+# ============ 화면 글(브리핑·합류) — 게임 글 루틴은 2바이트씩 찍고 N자마다 기계적으로 줄바꿈 ============
+SEL_DEMO_TAB = 0x0602A53C; NBRIEF = 7; BRIEF_W = 10       # 브리핑 본문 포인터 7칸(본문 NUL 뒤에 꼬리 문장이 붙어 있어야 함)
+JOIN_W, JOIN_LINES = 16, 4                                 # 합류 대사창 16자 × 4줄(원문 시가 64칸 꽉 채움)
+BRK = PUNCT.replace('・', '').replace('·', '')                # 줄바꿈 자리 부호(가운뎃점은 Ｍ・Ｉ・Ｓ・Ｓ 안이라 뺌)
+FW = {c: chr(ord(c) + 0xFEE0) for c in '!"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~'}
+
+
+def sjis_of_slot(s):
+    a, b = 0x21 + s // 94, 0x21 + s % 94
+    c1 = (a + 1) // 2 + (0x70 if a <= 0x5E else 0xB0)
+    c2 = b + (0x1F if b <= 0x5F else 0x20) if a % 2 else b + 0x7E
+    return bytes([c1, c2])
+
+
+def enc_char(ch, slot_of):
+    if ch == ' ': return b'\x81\x40'
+    if ch in slot_of and not half(ch) and '가' <= ch <= '힣': return sjis_of_slot(slot_of[ch])
+    b = FW.get(ch, ch).encode('cp932'); assert len(b) == 2, (ch, b); return b
+
+
+def wrap_text(t, w):
+    """낱말 단위로 w 자 줄을 만들고 줄 끝은 전각 공백으로 채움(원문 시와 같은 방식). '|' = 강제 줄바꿈. 줄 목록 반환."""
+    lines = []
+    for para in t.split('|'):
+        pieces = []                                             # (조각, 앞과 띄어 씀?) — 부호 뒤도 줄바꿈 자리(공백은 squeeze 로 지워졌으니)
+        for word in para.split(' '):
+            for k, p in enumerate(re.findall('[^' + re.escape(BRK) + ']*[' + re.escape(BRK) + ']+|[^' + re.escape(BRK) + ']+', word)):
+                pieces.append((p, k == 0))
+        cur = ''
+        for p, sp in pieces:
+            while len(p) > w:                                   # 한 조각이 줄보다 길면 어쩔 수 없이 자름
+                if cur: lines.append(cur); cur = ''
+                lines.append(p[:w]); p = p[w:]; sp = False
+            cand = (cur + (' ' if sp else '') + p) if cur else p
+            if len(cand) <= w: cur = cand
+            else: lines.append(cur); cur = p
+        lines.append(cur)
+    return lines
+
+
+def enc_text(t, w, slot_of):
+    ls = wrap_text(t, w)
+    body = ''.join(l.ljust(w) for l in ls[:-1]) + ls[-1]
+    return b''.join(enc_char(c, slot_of) for c in body), ls
+
+
+def text_patches(slot_of, base):
+    """화면 글 묶음(본 주소 base 부터 놓을 바이트) + 파일별 포인터 덮기 목록"""
+    TX = load_trans('text_')
+    blob = bytearray(); ptr = {}; report = []
+    def put(b):
+        nonlocal blob
+        if len(blob) % 2: blob += b'\0'
+        a = base + len(blob); blob += b; return a
+    for i in range(NBRIEF):
+        m, ml = enc_text(TX['B%dm' % i], BRIEF_W, slot_of); t, tl = enc_text(TX['B%dt' % i], BRIEF_W, slot_of)
+        ptr['B%d' % i] = put(m + b'\0' + t + b'\0'); report.append(('B%d' % i, ml + ['—'] + tl))
+    for i in range(8):
+        j, jl = enc_text(TX['J%d' % i], JOIN_W, slot_of)
+        assert len(jl) <= JOIN_LINES, ('합류 대사 4줄 넘음', i, jl)
+        ptr['J%d' % i] = put(j + b'\0'); report.append(('J%d' % i, jl))
+    files = {}
+    f = bytearray(open(os.path.join(ISO, 'SEL_DEMO.ALL'), 'rb').read())
+    s, c, a, z = struct.unpack_from('>4I', f, 0); o = s * 2048 + SEL_DEMO_TAB - a
+    orig = [0x0602B790, 0x0602B86C, 0x0602B94C, 0x0602B9F8, 0x0602BAF8, 0x0602BBF0, 0x0602BCEC]
+    assert list(struct.unpack_from('>7I', f, o)) == orig, 'SEL_DEMO 브리핑 표가 예상과 다름'
+    struct.pack_into('>7I', f, o, *[ptr['B%d' % i] for i in range(NBRIEF)]); files['SEL_DEMO.ALL'] = f
+    j6 = 'ワタシのチカラは…アナタと共に…'.encode('cp932') + b'\0'
+    for n in range(1, 8):
+        fn = 'ALL.ST%d' % n; f = bytearray(open(os.path.join(ISO, fn), 'rb').read())
+        s, c, a, z = struct.unpack_from('>4I', f, 0); po = s * 2048
+        sa = a + f.index(j6, po) - po
+        refs = [k for k in range(po, po + c * 2048, 4) if struct.unpack_from('>I', f, k)[0] == sa]
+        assert len(refs) == 1, (fn, refs); tb = refs[0] - 6 * 4
+        olds = struct.unpack_from('>8I', f, tb)
+        assert all(f[po + p - a:po + p - a + 2] != b'\0\0' for p in olds), (fn, '표 확인')
+        struct.pack_into('>8I', f, tb, *[ptr['J%d' % i] for i in range(8)]); files[fn] = f
+    return bytes(blob), files, report
 
 
 def clip_frames(name):
@@ -676,7 +762,9 @@ def build():
     assert not any(font[REGION - FONT:REGION_END - FONT]), '빈 행이 비어 있지 않다'
     T = load_trans()
     # 글자 → 칸
-    chars = sorted(set(c for t in T.values() for c in t if c != ' '))
+    TX = load_trans('text_')
+    chars = sorted(set(c for t in list(T.values()) + list(TX.values()) for c in t if c not in ' |' and (c in T and False or True)))
+    chars = [c for c in chars if '가' <= c <= '힣' or any(c in t for t in T.values())]   # 화면 글의 부호는 원래 전각 글자 그대로
     slots = free_slots(nfont)
     assert len(chars) <= len(slots), (len(chars), len(slots))
     slot_of = {c: slots[i] for i, c in enumerate(chars)}
@@ -718,6 +806,9 @@ def build():
         blob += b''.join(struct.pack('>H', w) for w in idx[b])
     blob += recbytes
     assert max([0] + [w for a in idx.values() for w in a]) < 0x10000
+    if len(blob) % 2: blob += b'\0'
+    tblob, tfiles, treport = text_patches(slot_of, data_base + len(blob))
+    blob += tblob
     src = hook_asm(data_base).replace('#banks', '#0x%08X' % data_base)
     code = sh2asm.assemble(src, CODE)
     assert CODE + len(code) <= data_base, '코드가 데이터 자리를 넘음'
@@ -733,6 +824,12 @@ def build():
     exe[SRV - 0x06004000:SRV - 0x06004000 + 12] = stub(lab['srv'])
     open(os.path.join(OUTD, 'KANJI.FON'), 'wb').write(font)
     open(os.path.join(OUTD, '1ST.BIN'), 'wb').write(exe)
+    for fn, d in tfiles.items():
+        open(os.path.join(OUTD, fn), 'wb').write(d)
+    with open(os.path.join(ROOT, 'work', 'text_layout.txt'), 'w', encoding='utf-8') as fo:
+        for k, ls in treport:
+            fo.write('[%s]\n' % k + '\n'.join('  |' + l + '|' for l in ls) + '\n')
+    print('화면 글 %d B(브리핑 %d·합류 8) → work/text_layout.txt' % (len(tblob), NBRIEF))
     print('자막 %d개 · 글자 %d자(칸 %d‥%d) · 코드 %d B · 데이터 %d B · 자리 %d / %d B' % (
         len(recs), len(chars), min(slot_of.values()) if slot_of else 0, max(slot_of.values()) if slot_of else 0,
         len(code), len(blob), data_base + len(blob) - REGION, REGION_END - REGION))

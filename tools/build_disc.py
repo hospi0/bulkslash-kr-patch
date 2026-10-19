@@ -10,7 +10,8 @@ import cdmode1
 SRC = r'C:\claude\roms\ss\Bulk Slash (Japan)'
 BASE = 'Bulk Slash (Japan)'
 OUT = r'F:\hospi\roms\ss roms\Bulk Slash (Japan)'
-FILES = [('1ST.BIN', 22, 356352), ('KANJI.FON', 67116, 249792)]    # (이름, LBA, 크기) — tools/iso.py list
+FILES = [('1ST.BIN', 22, 356352), ('KANJI.FON', 67116, 249792)] + [  # (이름, LBA, 크기) — tools/iso.py list
+    ('ALL.ST1', 15570, 2136064), ('ALL.ST2', 16613, 2129920), ('ALL.ST3', 17653, 2144256), ('ALL.ST4', 18700, 2140160), ('ALL.ST5', 19745, 2136064), ('ALL.ST6', 20788, 2146304), ('ALL.ST7', 21836, 2181120), ('SEL_DEMO.ALL', 22901, 1615872)]   # 브리핑·합류 포인터 표만 바뀜
 
 
 def main():
