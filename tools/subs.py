@@ -25,7 +25,7 @@ import sh2asm
 ISO = os.path.join(ROOT, 'work', 'iso')
 OUTD = os.path.join(ROOT, 'work', 'kr')
 KFONT = ImageFont.truetype(r'C:\claude\utils\font\Galmuri-v2.40.3\Galmuri.ttc', 15, index=0)   # Galmuri14(버닝 레인저 메일과 같음) — 판정은 사용자
-HFONT = ImageFont.truetype(r'C:\claude\utils\font\Galmuri-v2.40.3\Galmuri11-Condensed.ttf', 15)   # 반 칸 글자(숫자·!?,.) — 폭 5 px 라 테두리·여백이 반 칸 안에(Galmuri14 숫자 8 px 는 «2개»가 «27H»로 붙어 보임, 실기 2026-10-19)
+HFONT = ImageFont.truetype(r'C:\claude\utils\font\Galmuri-v2.40.3\Galmuri11-Condensed.ttf', 12)   # 반 칸 글자(숫자·!?,.) — ★원래 크기 12 px 만(15 px 로 키우면 비트맵 줄이 빠져 숫자가 깨짐, 2026-10-19) · 폭 4 px 라 테두리·여백이 반 칸 안에(Galmuri14 숫자 8 px 는 «2개»가 «27H»로 붙어 보임, 실기 2026-10-19)
 
 # ---- 주소 ----
 FONT = 0x00200000
