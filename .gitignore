@@ -12,3 +12,6 @@ work/movie/sub/
 work/movie/*.wav
 work/movie/*.png
 work/slot_map.tsv
+dist/
+work/seldemo_prg.bin
+work/*.bin
