@@ -110,15 +110,15 @@ def glyph(ch):
 
 
 # ============ 번역 → 쪽 ============
-def load_trans(prefix=''):
-    """prefix '' = 음성 자막(text_*.tsv 빼고) · 'text_' = 화면 글(브리핑·합류)"""
+def load_trans(prefix='', raw=False):
+    """prefix '' = 음성 자막(text_*.tsv 빼고) · 'text_' = 화면 글(브리핑·합류) · raw = 부호 뒤 공백 안 지움(내보내기용)"""
     T = {}
     for fn in sorted(glob.glob(os.path.join(ROOT, 'work', 'trans', prefix + '*.tsv'))):
         if not prefix and os.path.basename(fn).startswith('text_'): continue
         for ln in open(fn, encoding='utf-8').read().splitlines()[1:]:
             p = ln.split('\t')
             if len(p) >= 3 and p[2].strip():
-                T[p[0]] = squeeze(p[2].strip())
+                T[p[0]] = p[2].strip() if raw else squeeze(p[2].strip())
     return T
 
 
