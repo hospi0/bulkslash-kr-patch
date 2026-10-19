@@ -25,6 +25,7 @@ import sh2asm
 ISO = os.path.join(ROOT, 'work', 'iso')
 OUTD = os.path.join(ROOT, 'work', 'kr')
 KFONT = ImageFont.truetype(r'C:\claude\utils\font\Galmuri-v2.40.3\Galmuri.ttc', 15, index=0)   # Galmuri14(버닝 레인저 메일과 같음) — 판정은 사용자
+HFONT = ImageFont.truetype(r'C:\claude\utils\font\Galmuri-v2.40.3\Galmuri11-Condensed.ttf', 15)   # 반 칸 글자(숫자·!?,.) — 폭 5 px 라 테두리·여백이 반 칸 안에(Galmuri14 숫자 8 px 는 «2개»가 «27H»로 붙어 보임, 실기 2026-10-19)
 
 # ---- 주소 ----
 FONT = 0x00200000
@@ -51,7 +52,8 @@ def squeeze(t):
 
 
 def half(ch):
-    return ord(ch) < 0x80
+    """반 칸(8 px) 글자 — 좁은 것만. «~» 같은 넓은 반각은 한 칸"""
+    return ch in '0123456789!?,.:;'
 
 
 # ============ 글꼴 칸 ============
@@ -98,14 +100,19 @@ def free_slots(nfont):
 
 def glyph(ch):
     im = Image.new('L', (16, 16), 0); dr = ImageDraw.Draw(im); dr.fontmode = '1'
-    dr.text((4 if half(ch) else 8, 8), ch, font=KFONT, fill=255, anchor='mm')
+    if half(ch):
+        dr.text((1, 13), ch, font=HFONT, fill=255, anchor='ls')          # 한글과 기준선(13행) 맞춤
+    else:
+        dr.text((8, 8), ch, font=KFONT, fill=255, anchor='mm')
     a = np.array(im) > 0
-    # 테두리 1 px 자리: 잉크를 1‥14행·1‥14열(반각 1‥7열 — 숫자 폭 7 px 라 오른쪽 테두리는 잘림) 안으로 옮김 — 0행에 붙으면 위 테두리가 잘림(실기 2026-10-19)
+    # 테두리 1 px 자리: 잉크를 1‥14행·1‥14열(반 칸은 1‥6열) 안으로 — 0행에 붙으면 위 테두리가 잘림(실기 2026-10-19)
     ys, xs = np.nonzero(a)
     if len(ys):
         dy = max(0, 1 - ys.min()) - max(0, ys.max() - 14)
-        dx = max(0, 1 - xs.min()) - max(0, xs.max() - (7 if half(ch) else 14))
+        dx = max(0, 1 - xs.min()) - max(0, xs.max() - (6 if half(ch) else 14))
         a = np.roll(np.roll(a, dy, 0), dx, 1)
+        ys, xs = np.nonzero(a)
+        assert 1 <= xs.min() and xs.max() <= (6 if half(ch) else 14), ('글자가 칸을 넘음', ch)
     return b''.join(struct.pack('>H', int(''.join('1' if x else '0' for x in r), 2)) for r in a)
 
 
