@@ -123,22 +123,22 @@ ok &= m.r32(B.VBL_SLOT) == 0x06012340 and abs(n - (e + 1) // 2) <= 1
 m = fresh(); req(m, 72); a = ours(m); m.w16(0x06023616, 1); m.w16(0x06023F3A, 0); req(m, 29)
 print('바쁠 때 요청: 72 자막 유지', ours(m) == a and m.r32(B.STATE) == 1); ok &= ours(m) == a
 
-# 9) 보스 체력 바(2행)가 있어도 기본 자리 4‥7행에 그림, 남의 칸은 그대로
-# 10) 기본 자리가 막히면 1‥4행
+# 9) 보스 체력 바(2행)가 있으면 3‥6행(바 밑)에 그림, 남의 칸은 그대로
+# 10) 체력 바가 없으면 1‥4행
 m = fresh()
 for c in range(10, 31): m.w16(B.MAPBUF + 2 * 128 + c * 2, 0x01CC)
 req(m, 28)
-r47 = sum(1 for rr in range(B.ROW, B.ROW + 4) for c in range(B.COLS) if m.r16(B.MAPBUF + rr * 128 + c * 2) & 0xFF80 == B.MAPV)
+r47 = sum(1 for rr in range(B.ROW2, B.ROW2 + 4) for c in range(B.COLS) if m.r16(B.MAPBUF + rr * 128 + c * 2) & 0xFF80 == B.MAPV)
 bar = all(m.r16(B.MAPBUF + 2 * 128 + c * 2) == 0x01CC for c in range(10, 31))
-print('보스 체력 바: 기본 자리 우리 칸', r47, '· 체력 바 유지', bar); ok &= r47 > 0 and bar
+print('보스 체력 바: 3‥6행 우리 칸', r47, '· 체력 바 유지', bar); ok &= r47 > 0 and bar
 preview(m, os.path.join(ROOT, 'work', 'pv_subs_boss.png'))
 end = m.r32(B.STATE + 8)
 for f in range(end + 3): frame(m)
 print('  끝 뒤 우리 칸', ours(m), '· 체력 바 유지', all(m.r16(B.MAPBUF + 2 * 128 + c * 2) == 0x01CC for c in range(10, 31))); ok &= ours(m) == 0
 
-m = fresh(); m.w16(B.MAPBUF + 5 * 128 + 10, 0x5158); req(m, 28)
-r14 = sum(1 for rr in range(1, 4) for c in range(B.COLS) if m.r16(B.MAPBUF + rr * 128 + c * 2) & 0xFF80 == B.MAPV)
+m = fresh(); req(m, 28)
+r14 = sum(1 for rr in range(1, 3) for c in range(B.COLS) if m.r16(B.MAPBUF + rr * 128 + c * 2) & 0xFF80 == B.MAPV)
 free14 = all(fresh().r16(B.MAPBUF + rr * 128 + c * 2) == 0 for rr in range(1, 5) for c in range(B.COLS))
-print('기본 자리 막힘: 1‥4행 우리 칸', r14, '(1‥4행이 비어 있으면 >0, 아니면 0 기대)'); ok &= (r14 > 0) == free14
+print('체력 바 없을 때: 1‥2행 우리 칸', r14, '(1‥4행이 비어 있으면 >0)'); ok &= (r14 > 0) == free14
 
 print('전부 통과' if ok else '★실패 있음')

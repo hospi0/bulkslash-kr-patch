@@ -31,7 +31,7 @@ FONT = 0x00200000
 REGION, REGION_END = FONT + 658 * 32, FONT + 1410 * 32          # JIS 0x28‥0x2F 행(빈 글자)
 STATE = REGION                                                   # 32 B: +0 켜짐 +4 지금 시각 +8 끝 +12 다음 쪽 +16 시작 VBlank +20 VBlank 수 +24 시계 방식
 CODE = REGION + 32
-MAPBUF = 0x060B7000; ROW = 3; ROW2 = 1; COLS = 40               # 기본 = 지도 3‥6행(보스 체력 바 2행 바로 밑, 화면 y 24‥56 — 4‥7행은 STAGE CLEAR 와 겹침, 사용자 2026-10-19) · 막혀 있으면 1‥4행
+MAPBUF = 0x060B7000; ROW = 1; ROW2 = 3; COLS = 40               # 기본 = 지도 1‥4행(화면 y 8‥40 — 3행 이하면 STAGE CLEAR 스프라이트에 가림) · 2행에 보스 체력 바가 있으면 3‥6행(바 바로 밑) — 사용자 2026-10-19
 CELLS = 0x25E77000; MAXGLYPH = 32; MAPV = 0x0B80
 REQ, REQ_CONT = 0x0600777C, 0x06007788
 SRV, SRV_CONT = 0x060071FC, 0x06007208
