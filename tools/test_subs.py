@@ -128,9 +128,9 @@ print('바쁠 때 요청: 72 자막 유지', ours(m) == a and m.r32(B.STATE) == 
 m = fresh()
 for c in range(10, 31): m.w16(B.MAPBUF + 2 * 128 + c * 2, 0x01CC)
 req(m, 28)
-r47 = sum(1 for rr in range(4, 8) for c in range(B.COLS) if m.r16(B.MAPBUF + rr * 128 + c * 2) & 0xFF80 == B.MAPV)
+r47 = sum(1 for rr in range(B.ROW, B.ROW + 4) for c in range(B.COLS) if m.r16(B.MAPBUF + rr * 128 + c * 2) & 0xFF80 == B.MAPV)
 bar = all(m.r16(B.MAPBUF + 2 * 128 + c * 2) == 0x01CC for c in range(10, 31))
-print('보스 체력 바: 4‥7행 우리 칸', r47, '· 체력 바 유지', bar); ok &= r47 > 0 and bar
+print('보스 체력 바: 기본 자리 우리 칸', r47, '· 체력 바 유지', bar); ok &= r47 > 0 and bar
 preview(m, os.path.join(ROOT, 'work', 'pv_subs_boss.png'))
 end = m.r32(B.STATE + 8)
 for f in range(end + 3): frame(m)
