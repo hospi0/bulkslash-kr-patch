@@ -462,6 +462,8 @@ st_vset:
   mov.l r7,@(24,r8)
   mov.l @(20,r8),r1
   mov.l r1,@(16,r8)
+  mov #0,r1
+  mov.l r1,@(28,r8)
   mov #1,r1
   mov.l r1,@r8
   bsr step
@@ -519,6 +521,8 @@ fr_have:
   cmp/hs r2,r1
   bt fr_clear
   bsr step
+  nop
+  bsr keep
   nop
   bra fr_out
   nop
@@ -603,37 +607,90 @@ step:                       ; 때가 된 쪽을 그림
   cmp/hs r0,r1
   bf sp_out
   add #2,r9
-  bsr clear_map
+  mov.l r9,@(28,r8)         ; 지금 쪽(다시 그리기용)
+  bsr place_page
   nop
-  mov.l {L(MAPBUF + ROW * 128)},r1
-  bsr rows_free
-  nop
-  bt sp_row1
-  mov.l {L(MAPBUF + ROW2 * 128)},r1
-  bsr rows_free
-  nop
-  bf sp_skip
-  mov.l {L(MAPBUF + ROW2 * 128 - 256)},r11
-  bra sp_draw
-  nop
-sp_row1:
-  mov.l {L(MAPBUF + ROW * 128 - 256)},r11
-sp_draw:
-  bsr draw_page
-  nop
-  bra sp_save
-  nop
-sp_skip:
-  mov.w @r9+,r0
-  extu.w r0,r0
-  tst r0,r0
-  bf sp_skip
-sp_save:
   mov.l r9,@(12,r8)
 sp_out:
   lds.l @r15+,pr
   rts
   nop
+
+keep:                       ; 지금 쪽이 지도에서 지워졌으면(게임이 구역을 통째로 비움 — 숫자 그림 지울 때) 다시 그림
+  sts.l pr,@-r15
+  mov.l {L(STATE)},r8
+  mov.l @(28,r8),r9
+  tst r9,r9
+  bt kp_out
+  bsr has_ours
+  nop
+  bt kp_out
+  bsr place_page
+  nop
+kp_out:
+  lds.l @r15+,pr
+  rts
+  nop
+
+has_ours:                   ; T=1: 1‥6행에 우리 칸이 하나라도 있음
+  mov.l {L(MAPBUF + min(ROW, ROW2) * 128)},r1
+  mov #{abs(ROW2 - ROW) + 4},r2
+  mov.l #0xFF80,r6
+  mov.l {L(MAPV)},r7
+ho_row:
+  mov #{COLS},r3
+  mov r1,r5
+ho_col:
+  mov.w @r5,r0
+  and r6,r0
+  cmp/eq r7,r0
+  bt ho_yes
+  dt r3
+  bf/s ho_col
+  add #2,r5
+  mov.l #128,r0
+  dt r2
+  bf/s ho_row
+  add r0,r1
+  mov #1,r0
+  rts
+  tst r0,r0
+ho_yes:
+  rts
+  nop
+
+place_page:                 ; r9 = 쪽 항목 → 비었으면 두 자리 중 하나에 그림 · r9 = 끝(0) 뒤
+  sts.l pr,@-r15
+  bsr clear_map
+  nop
+  mov.l {L(MAPBUF + ROW * 128)},r1
+  bsr rows_free
+  nop
+  bt pp_row1
+  mov.l {L(MAPBUF + ROW2 * 128)},r1
+  bsr rows_free
+  nop
+  bf pp_skip
+  mov.l {L(MAPBUF + ROW2 * 128 - 256)},r11
+  bra pp_draw
+  nop
+pp_row1:
+  mov.l {L(MAPBUF + ROW * 128 - 256)},r11
+pp_draw:
+  bsr draw_page
+  nop
+  bra pp_out
+  nop
+pp_skip:
+  mov.w @r9+,r0
+  extu.w r0,r0
+  tst r0,r0
+  bf pp_skip
+pp_out:
+  lds.l @r15+,pr
+  rts
+  nop
+
 
 draw_page:                  ; r9 = 항목 → 끝(0) 뒤로
   sts.l pr,@-r15

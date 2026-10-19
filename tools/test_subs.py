@@ -138,7 +138,18 @@ print('  끝 뒤 우리 칸', ours(m), '· 체력 바 유지', all(m.r16(B.MAPBU
 
 m = fresh(); req(m, 28)
 r14 = sum(1 for rr in range(1, 3) for c in range(B.COLS) if m.r16(B.MAPBUF + rr * 128 + c * 2) & 0xFF80 == B.MAPV)
-free14 = all(fresh().r16(B.MAPBUF + rr * 128 + c * 2) == 0 for rr in range(1, 5) for c in range(B.COLS))
+_f = fresh(); free14 = all(_f.r16(B.MAPBUF + rr * 128 + c * 2) in (0,) or _f.r16(B.MAPBUF + rr * 128 + c * 2) & 0xFF80 == B.MAPV for rr in range(1, 5) for c in range(B.COLS))   # 우리 칸은 빈 칸으로
 print('체력 바 없을 때: 1‥2행 우리 칸', r14, '(1‥4행이 비어 있으면 >0)'); ok &= (r14 > 0) == free14
+
+# 11) 자막 중 게임이 지도 구역을 통째로 비우면(숫자 그림 지울 때) 다음 프레임에 다시 그림
+m = fresh(); req(m, 46); a = ours(m)
+for rr in range(0, 16):
+    for c in range(64): m.w16(B.MAPBUF + rr * 128 + c * 2, 0)
+frame(m); b = ours(m)
+print('지도 비워진 뒤 다시 그림: 처음', a, '→ 다음 프레임', b); ok &= a > 0 and b == a
+# 12) 자리가 막혀 있다가(두 자리 다) 풀리면 그때 그림
+m = fresh(); m.w16(B.MAPBUF + 2 * 128 + 10, 0x5158); m.w16(B.MAPBUF + 5 * 128 + 10, 0x5158); req(m, 46); a = ours(m)
+m.w16(B.MAPBUF + 2 * 128 + 10, 0); m.w16(B.MAPBUF + 5 * 128 + 10, 0); frame(m); b = ours(m)
+print('막혔다 풀림: 처음', a, '→ 풀린 뒤', b); ok &= a == 0 and b > 0
 
 print('전부 통과' if ok else '★실패 있음')
