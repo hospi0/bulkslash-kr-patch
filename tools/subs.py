@@ -126,33 +126,44 @@ def width(s):
     return sum(1 if half(c) else 2 for c in s)
 
 
+def pieces_of(para):
+    """(조각, 앞과 띄어 씀?) — 공백과 «부호 뒤»가 줄바꿈 자리(부호 뒤 공백은 squeeze 가 지웠으니). 가운뎃점은 안 끊음."""
+    out = []
+    for word in para.split(' '):
+        for k, p in enumerate(re.findall('[^' + re.escape(BRK) + ']*[' + re.escape(BRK) + ']+|[^' + re.escape(BRK) + ']+', word)):
+            out.append((p, k == 0))
+    return out
+
+
 def lines_of(t, maxw=COLS - 2):
-    """띄어쓰기 자리에서 줄 나눔(번역은 안 깎음)"""
+    """줄 나눔(번역은 안 깎음). ⛔한 조각이 줄보다 길면 글자 단위로 자르지 않고 멈춤 — 사람이 고친다."""
     out, cur = [], ''
-    for w in t.split(' '):
-        cand = (cur + ' ' + w) if cur else w
-        if width(cand) <= maxw:
-            cur = cand
-        else:
-            if cur: out.append(cur)
-            cur = w
+    for p, sp in pieces_of(t):
+        assert width(p) <= maxw, ('한 낱말이 줄 폭을 넘음 — 번역을 고칠 것', p, t)
+        cand = (cur + (' ' if sp else '') + p) if cur else p
+        if width(cand) <= maxw: cur = cand
+        else: out.append(cur); cur = p
     if cur: out.append(cur)
     return out
 
 
 def pages_of(t):
-    ls = lines_of(t); pages = []
-    while ls:
-        pg = ls[:2]
-        while sum(len(l.replace(' ', '')) for l in pg) > MAXGLYPH and len(pg) > 1:
-            pg = pg[:1]
-        pages.append(pg); ls = ls[len(pg):]
+    """« | » = 쪽 나눔(화자 바뀜 등). 그 안은 2줄씩·한 쪽 글자 32개까지."""
+    pages = []
+    for part in t.split('|'):
+        ls = lines_of(part.strip())
+        while ls:
+            pg = ls[:2]
+            while sum(len(l.replace(' ', '')) for l in pg) > MAXGLYPH and len(pg) > 1:
+                pg = pg[:1]
+            pages.append(pg); ls = ls[len(pg):]
     return pages
 
 
 # ============ 화면 글(브리핑·합류) — 게임 글 루틴은 2바이트씩 찍고 N자마다 기계적으로 줄바꿈 ============
 SEL_DEMO_TAB = 0x0602A53C; NBRIEF = 7; BRIEF_W = 10       # 브리핑 본문 포인터 7칸(본문 NUL 뒤에 꼬리 문장이 붙어 있어야 함)
 JOIN_W, JOIN_LINES = 16, 4                                 # 합류 대사창 16자 × 4줄(원문 시가 64칸 꽉 채움)
+JSTREAM_SIG = bytes([0x14, 0x0C, 0x0B, 0x00, 0x10, 0x05, 0x0B, 0x00])   # 합류 드러냄 열 시작(레오네 20·쉼12·11 / 리라 16·5·11) — 원문 글자 수와 일치
 BRK = PUNCT.replace('・', '').replace('·', '')                # 줄바꿈 자리 부호(가운뎃점은 Ｍ・Ｉ・Ｓ・Ｓ 안이라 뺌)
 FW = {c: chr(ord(c) + 0xFEE0) for c in '!"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~'}
 
@@ -174,15 +185,10 @@ def wrap_text(t, w):
     """낱말 단위로 w 자 줄을 만들고 줄 끝은 전각 공백으로 채움(원문 시와 같은 방식). '|' = 강제 줄바꿈. 줄 목록 반환."""
     lines = []
     for para in t.split('|'):
-        pieces = []                                             # (조각, 앞과 띄어 씀?) — 부호 뒤도 줄바꿈 자리(공백은 squeeze 로 지워졌으니)
-        for word in para.split(' '):
-            for k, p in enumerate(re.findall('[^' + re.escape(BRK) + ']*[' + re.escape(BRK) + ']+|[^' + re.escape(BRK) + ']+', word)):
-                pieces.append((p, k == 0))
+        pieces = pieces_of(para)
         cur = ''
         for p, sp in pieces:
-            while len(p) > w:                                   # 한 조각이 줄보다 길면 어쩔 수 없이 자름
-                if cur: lines.append(cur); cur = ''
-                lines.append(p[:w]); p = p[w:]; sp = False
+            assert len(p) <= w, ('한 낱말이 줄 폭을 넘음 — 번역을 고칠 것', p, t)   # ⛔글자 단위로 자르지 않음
             cand = (cur + (' ' if sp else '') + p) if cur else p
             if len(cand) <= w: cur = cand
             else: lines.append(cur); cur = p
@@ -207,10 +213,21 @@ def text_patches(slot_of, base):
     for i in range(NBRIEF):
         m, ml = enc_text(TX['B%dm' % i], BRIEF_W, slot_of); t, tl = enc_text(TX['B%dt' % i], BRIEF_W, slot_of)
         ptr['B%d' % i] = put(m + b'\0' + t + b'\0'); report.append(('B%d' % i, ml + ['—'] + tl))
+    streams = []
     for i in range(8):
-        j, jl = enc_text(TX['J%d' % i], JOIN_W, slot_of)
+        raw = TX['J%d' % i]
+        cuts = [len(raw[:k].replace(' ', '').replace('^', '')) for k, ch in enumerate(raw) if ch == '^']   # 쉼 자리 = 앞 글자 수(공백 빼고)
+        t = squeeze(raw.replace('^', ''))
+        j, jl = enc_text(t, JOIN_W, slot_of)
         assert len(jl) <= JOIN_LINES, ('합류 대사 4줄 넘음', i, jl)
         ptr['J%d' % i] = put(j + b'\0'); report.append(('J%d' % i, jl))
+        if i < 7:   # 드러냄 열 [n, 쉼, n, 쉼 … 0]: 쉼은 원래 값, n = 실제로 드러낼 칸 수(줄 끝 채움 포함) — 원문 글자 수 그대로면 끝이 잘림(실기 2026-10-19)
+            n_cells = len(j) // 2; ends = []; seen = 0
+            for pos in range(n_cells):
+                if j[pos * 2:pos * 2 + 2] != b'\x81\x40': seen += 1
+                if len(ends) < len(cuts) and seen == cuts[len(ends)] and j[pos * 2:pos * 2 + 2] != b'\x81\x40': ends.append(pos + 1)
+            assert len(ends) == len(cuts), ('쉼 자리 못 찾음', i)
+            streams.append([b - a_ for a_, b in zip([0] + ends, ends + [n_cells])])
     files = {}
     f = bytearray(open(os.path.join(ISO, 'SEL_DEMO.ALL'), 'rb').read())
     s, c, a, z = struct.unpack_from('>4I', f, 0); o = s * 2048 + SEL_DEMO_TAB - a
@@ -226,7 +243,21 @@ def text_patches(slot_of, base):
         assert len(refs) == 1, (fn, refs); tb = refs[0] - 6 * 4
         olds = struct.unpack_from('>8I', f, tb)
         assert all(f[po + p - a:po + p - a + 2] != b'\0\0' for p in olds), (fn, '표 확인')
-        struct.pack_into('>8I', f, tb, *[ptr['J%d' % i] for i in range(8)]); files[fn] = f
+        struct.pack_into('>8I', f, tb, *[ptr['J%d' % i] for i in range(8)])
+        # 합류 대사 드러냄 열(음성 맞춤): 열 시작 = JSTREAM_SIG, 그 주소를 가리키는 포인터 7칸 표
+        sa2 = a + f.index(JSTREAM_SIG, po) - po
+        pt = [k for k in range(po, po + c * 2048, 4) if struct.unpack_from('>I', f, k)[0] == sa2]
+        assert len(pt) == 1, (fn, '드러냄 표'); pt = pt[0]
+        for q in range(7):
+            o0 = struct.unpack_from('>I', f, pt + 4 * q)[0] - a + po; o = o0; orig = []
+            while f[o]: orig.append(f[o]); o += 1
+            assert len(orig) == 2 * len(streams[q]) - 1, (fn, q, '쉼 수가 원문과 다름 — ^ 개수 확인', orig, streams[q])
+            new = []
+            for zi, sz in enumerate(streams[q]):
+                assert 0 < sz < 256, (q, sz); new.append(sz)
+                if zi < len(streams[q]) - 1: new.append(orig[2 * zi + 1])
+            f[o0:o0 + len(new)] = bytes(new)
+        files[fn] = f
     return bytes(blob), files, report
 
 
