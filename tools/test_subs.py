@@ -152,4 +152,14 @@ m = fresh(); m.w16(B.MAPBUF + 2 * 128 + 10, 0x5158); m.w16(B.MAPBUF + 5 * 128 + 
 m.w16(B.MAPBUF + 2 * 128 + 10, 0); m.w16(B.MAPBUF + 5 * 128 + 10, 0); frame(m); b = ours(m)
 print('막혔다 풀림: 처음', a, '→ 풀린 뒤', b); ok &= a == 0 and b > 0
 
+# 13) 컨티뉴 화면: 게임이 체력 바 자리(2행 10‥30열)를 매 프레임 0 으로 → 일부 지워지면 3‥6행으로 옮김
+m = fresh(); req(m, 72)
+for c in range(10, 31): m.w16(B.MAPBUF + 2 * 128 + c * 2, 0)
+frame(m)
+r12 = sum(1 for rr in (1, 2) for c in range(B.COLS) if m.r16(B.MAPBUF + rr * 128 + c * 2) & 0xFF80 == B.MAPV)
+r36 = sum(1 for rr in range(3, 7) for c in range(B.COLS) if m.r16(B.MAPBUF + rr * 128 + c * 2) & 0xFF80 == B.MAPV)
+for c in range(10, 31): m.w16(B.MAPBUF + 2 * 128 + c * 2, 0)
+frame(m); r36b = sum(1 for rr in range(3, 7) for c in range(B.COLS) if m.r16(B.MAPBUF + rr * 128 + c * 2) & 0xFF80 == B.MAPV)
+print('일부 지워짐 → 3‥6행 옮김: 1‥2행', r12, '· 3‥6행', r36, '→ 다음 프레임', r36b); ok &= r12 == 0 and r36 > 0 and r36b == r36
+
 print('전부 통과' if ok else '★실패 있음')

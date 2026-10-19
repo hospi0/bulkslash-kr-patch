@@ -30,8 +30,8 @@ HFONT = ImageFont.truetype(r'C:\claude\utils\font\Galmuri-v2.40.3\Galmuri11-Cond
 # ---- 주소 ----
 FONT = 0x00200000
 REGION, REGION_END = FONT + 658 * 32, FONT + 1410 * 32          # JIS 0x28‥0x2F 행(빈 글자)
-STATE = REGION                                                   # 32 B: +0 켜짐 +4 지금 시각 +8 끝 +12 다음 쪽 +16 시작 VBlank +20 VBlank 수 +24 시계 방식
-CODE = REGION + 32
+STATE = REGION                                                   # 48 B: +0 켜짐 +4 지금 시각 +8 끝 +12 다음 쪽 +16 시작 VBlank +20 VBlank 수 +24 시계 방식 +28 지금 쪽 +32 그린 지도 칸 수 +36 아래 자리 강제
+CODE = REGION + 48
 MAPBUF = 0x060B7000; ROW = 1; ROW2 = 3; COLS = 40               # 기본 = 지도 1‥4행(화면 y 8‥40 — 3행 이하면 STAGE CLEAR 스프라이트에 가림) · 2행에 보스 체력 바가 있으면 3‥6행(바 바로 밑) — 사용자 2026-10-19
 CELLS = 0x25E77000; MAXGLYPH = 32; MAPV = 0x0B80
 REQ, REQ_CONT = 0x0600777C, 0x06007788
@@ -313,9 +313,20 @@ def record(pages, frames, slot_of):
 
 
 # ============ SH-2 훅 ============
-def hook_asm(data_base):
+VBL_FIXED = 0x00205304                                           # ★VBlank 콜백 주소 고정 — 예전 빌드 스테이트에 이 주소가 박혀 있다(옮기면 스테이트 불러올 때 멈춤)
+
+
+def hook_asm(data_base, vblpad=0):
     L = lambda v: '#0x%08X' % v
+    VBLPAD = ('  nop' + chr(10)) * vblpad
     return f'''
+{VBLPAD}vbl:                        ; SGL 사용자 VBlank 콜백(빈 칸일 때만 끼움) — r0·r1 만
+  mov.l #{STATE + 20:#x},r0
+  mov.l @r0,r1
+  add #1,r1
+  rts
+  mov.l r1,@r0
+
 req:                        ; 0x0600777C 에서 옴 — 원래 함수를 부르고, 받아들여졌으면 자막 시작(r8‥r14 보존)
   sts.l pr,@-r15
   mov.l r8,@-r15
@@ -404,13 +415,6 @@ srv:                        ; 0x060071FC 에서 옴 — 프레임마다
   jmp @r0
   nop
 
-vbl:                        ; SGL 사용자 VBlank 콜백(빈 칸일 때만 끼움) — r0·r1 만
-  mov.l #{STATE + 20:#x},r0
-  mov.l @r0,r1
-  add #1,r1
-  rts
-  mov.l r1,@r0
-
 start:                      ; r4 = 클립 번호
   sts.l pr,@-r15
   mov.l r4,@-r15
@@ -471,6 +475,8 @@ st_vset:
   mov.l r1,@(16,r8)
   mov #0,r1
   mov.l r1,@(28,r8)
+  mov.l r1,@(32,r8)
+  mov.l r1,@(36,r8)
   mov #1,r1
   mov.l r1,@r8
   bsr step
@@ -629,9 +635,16 @@ keep:                       ; 지금 쪽이 지도에서 지워졌으면(게임�
   mov.l @(28,r8),r9
   tst r9,r9
   bt kp_out
-  bsr has_ours
+  bsr count_ours            ; 그린 칸이 하나라도 사라졌으면(컨티뉴 화면은 체력 바 자리 2행을 매 프레임 0 으로) 아래 자리로 옮겨 다시
   nop
+  mov.l @(32,r8),r1
+  cmp/eq r1,r0
   bt kp_out
+  cmp/pl r1                 ; 그렸다가 지워진 경우만 아래 자리 강제(못 그렸던 쪽(−1)은 같은 규칙으로 다시 시도)
+  bf kp_place
+  mov #1,r0
+  mov.l r0,@(36,r8)
+kp_place:
   bsr place_page
   nop
 kp_out:
@@ -639,7 +652,8 @@ kp_out:
   rts
   nop
 
-has_ours:                   ; T=1: 1‥6행에 우리 칸이 하나라도 있음
+count_ours:                 ; r0 = 1‥6행의 우리 칸 수
+  mov #0,r4
   mov.l {L(MAPBUF + min(ROW, ROW2) * 128)},r1
   mov #{abs(ROW2 - ROW) + 4},r2
   mov.l #0xFF80,r6
@@ -651,7 +665,9 @@ ho_col:
   mov.w @r5,r0
   and r6,r0
   cmp/eq r7,r0
-  bt ho_yes
+  bf ho_no
+  add #1,r4
+ho_no:
   dt r3
   bf/s ho_col
   add #2,r5
@@ -659,21 +675,22 @@ ho_col:
   dt r2
   bf/s ho_row
   add r0,r1
-  mov #1,r0
   rts
-  tst r0,r0
-ho_yes:
-  rts
-  nop
+  mov r4,r0
 
 place_page:                 ; r9 = 쪽 항목 → 비었으면 두 자리 중 하나에 그림 · r9 = 끝(0) 뒤
   sts.l pr,@-r15
   bsr clear_map
   nop
+  mov.l {L(STATE)},r1
+  mov.l @(36,r1),r0
+  tst r0,r0
+  bf pp_try2
   mov.l {L(MAPBUF + ROW * 128)},r1
   bsr rows_free
   nop
   bt pp_row1
+pp_try2:
   mov.l {L(MAPBUF + ROW2 * 128)},r1
   bsr rows_free
   nop
@@ -689,10 +706,14 @@ pp_draw:
   bra pp_out
   nop
 pp_skip:
+  mov.l {L(STATE)},r1
+  mov #-1,r0
+  mov.l r0,@(32,r1)          ; 못 그림 → keep 이 계속 다시 시도
+pp_sk:
   mov.w @r9+,r0
   extu.w r0,r0
   tst r0,r0
-  bf pp_skip
+  bf pp_sk
 pp_out:
   lds.l @r15+,pr
   rts
@@ -702,6 +723,7 @@ pp_out:
 draw_page:                  ; r9 = 항목 → 끝(0) 뒤로
   sts.l pr,@-r15
   mov #0,r10                ; r11 = 첫 줄 지도 주소 − 256(step 이 정함)
+  mov #0,r14                ; 그린 지도 칸 수
 dp_loop:
   mov.w @r9+,r0
   extu.w r0,r0
@@ -753,14 +775,18 @@ dp_glyph:
   mov.w r0,@(2,r12)
   add #2,r0
   mov.w r0,@(2,r2)
+  add #2,r14
   bra dp_next
   add #4,r12
 dp_half:
   add #2,r12
 dp_next:
+  add #2,r14
   bra dp_loop
   add #1,r10
 dp_out:
+  mov.l {L(STATE)},r1
+  mov.l r14,@(32,r1)
   lds.l @r15+,pr
   rts
   nop
@@ -908,7 +934,9 @@ def build():
         tabn[b] = (struct.unpack_from('>I', d, 12)[0], n)
     used_banks = [b for b in BANKS if any(k.startswith(b + '_') for k in recs)]
     # 코드 크기 먼저 재기(데이터 시작 주소가 코드 뒤라서 두 번 어셈블)
-    code = sh2asm.assemble(hook_asm(0) + 'banks:\n  .long 0\n', CODE)
+    vblpad = (VBL_FIXED - labels(hook_asm(0))['vbl']) // 2
+    assert vblpad >= 0, ('VBlank 함수 앞 코드가 고정 주소를 넘음', hex(labels(hook_asm(0))['vbl']))
+    code = sh2asm.assemble(hook_asm(0, vblpad) + 'banks:\n  .long 0\n', CODE)
     data_base = (CODE + len(code) + 64 + 3) & ~3
     blob = bytearray()
     bank_tab = bytearray(); idx_parts = []
@@ -935,11 +963,12 @@ def build():
     if len(blob) % 2: blob += b'\0'
     tblob, tfiles, treport = text_patches(slot_of, data_base + len(blob))
     blob += tblob
-    src = hook_asm(data_base).replace('#banks', '#0x%08X' % data_base)
+    src = hook_asm(data_base, vblpad).replace('#banks', '#0x%08X' % data_base)
     code = sh2asm.assemble(src, CODE)
+    assert labels(src)['vbl'] == VBL_FIXED, hex(labels(src)['vbl'])
     assert CODE + len(code) <= data_base, '코드가 데이터 자리를 넘음'
     assert data_base + len(blob) <= REGION_END, ('자리 넘침', hex(data_base + len(blob)), hex(REGION_END))
-    font[STATE - FONT:STATE - FONT + 32] = b'\0' * 32
+    font[STATE - FONT:STATE - FONT + 48] = b'\0' * 48
     font[CODE - FONT:CODE - FONT + len(code)] = code
     font[data_base - FONT:data_base - FONT + len(blob)] = blob
     lab = labels(src)
