@@ -31,7 +31,7 @@ FONT = 0x00200000
 REGION, REGION_END = FONT + 658 * 32, FONT + 1410 * 32          # JIS 0x28‥0x2F 행(빈 글자)
 STATE = REGION                                                   # 32 B: +0 켜짐 +4 지금 시각 +8 끝 +12 다음 쪽 +16 시작 VBlank +20 VBlank 수 +24 시계 방식
 CODE = REGION + 32
-MAPBUF = 0x060B7000; ROW = 1; COLS = 40                          # 지도 1‥4행(화면 위 8‥40 px) — 1스테이지에선 빈 행
+MAPBUF = 0x060B7000; ROW = 1; ROW2 = 4; COLS = 40               # 지도 1‥4행(화면 위 8‥40 px) — 막혀 있으면(보스 체력 바 = 2행) 4‥7행
 CELLS = 0x25E77000; MAXGLYPH = 32; MAPV = 0x0B80
 REQ, REQ_CONT = 0x0600777C, 0x06007788
 SRV, SRV_CONT = 0x060071FC, 0x06007208
@@ -518,9 +518,9 @@ clear:                      ; 끄기 + 우리 지도 칸만 지움
   mov.l {L(STATE)},r1
   mov #0,r0
   mov.l r0,@r1
-clear_map:
+clear_map:                  ; 두 후보 자리(1‥7행)에서 우리 칸만 지움
   mov.l {L(MAPBUF + ROW * 128)},r1
-  mov #4,r2
+  mov #{ROW2 + 4 - ROW},r2
   mov.l #0xFF80,r6
   mov.l {L(MAPV)},r7
 cm_row:
@@ -544,8 +544,7 @@ cm_next:
   rts
   nop
 
-rows_free:                  ; T=1: 지도 칸이 모두 0 이거나 우리 것
-  mov.l {L(MAPBUF + ROW * 128)},r1
+rows_free:                  ; r1 = 지도 행 주소 → T=1: 4행이 모두 0 이거나 우리 것
   mov #4,r2
   mov.l #0xFF80,r6
   mov.l {L(MAPV)},r7
@@ -588,11 +587,22 @@ step:                       ; 때가 된 쪽을 그림
   cmp/hs r0,r1
   bf sp_out
   add #2,r9
+  bsr clear_map
+  nop
+  mov.l {L(MAPBUF + ROW * 128)},r1
+  bsr rows_free
+  nop
+  bt sp_row1
+  mov.l {L(MAPBUF + ROW2 * 128)},r1
   bsr rows_free
   nop
   bf sp_skip
-  bsr clear_map
+  mov.l {L(MAPBUF + ROW2 * 128 - 256)},r11
+  bra sp_draw
   nop
+sp_row1:
+  mov.l {L(MAPBUF + ROW * 128 - 256)},r11
+sp_draw:
   bsr draw_page
   nop
   bra sp_save
@@ -611,8 +621,7 @@ sp_out:
 
 draw_page:                  ; r9 = 항목 → 끝(0) 뒤로
   sts.l pr,@-r15
-  mov #0,r10
-  mov.l {L(MAPBUF + ROW * 128 - 256)},r11
+  mov #0,r10                ; r11 = 첫 줄 지도 주소 − 256(step 이 정함)
 dp_loop:
   mov.w @r9+,r0
   extu.w r0,r0

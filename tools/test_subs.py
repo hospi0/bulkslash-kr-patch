@@ -46,7 +46,7 @@ def frame(m, vbl=1):
 
 
 def ours(m):
-    return sum(1 for rr in range(B.ROW, B.ROW + 4) for c in range(B.COLS)
+    return sum(1 for rr in range(B.ROW, B.ROW2 + 4) for c in range(B.COLS)
                if m.r16(B.MAPBUF + rr * 128 + c * 2) & 0xFF80 == B.MAPV)
 
 
@@ -106,8 +106,8 @@ print('합류 화면: 시작 안 함', a == 0, '· 도중 지움', b == 0); ok &
 m = fresh(); m.w32(B.SIG[0][0], 0); req(m, 28)
 print('스테이지 아님: 지도 칸', ours(m), '켜짐', m.r32(B.STATE)); ok &= ours(m) == 0 and m.r32(B.STATE) == 0
 
-# 6) 지도 1‥4행에 남의 칸이 있으면 안 그림(그 칸은 그대로)
-m = fresh(); m.w16(B.MAPBUF + (B.ROW + 1) * 128 + 10, 0x5158); req(m, 28)
+# 6) 두 후보 자리(1‥4행·4‥7행)에 모두 남의 칸이 있으면 안 그림(그 칸은 그대로)
+m = fresh(); m.w16(B.MAPBUF + (B.ROW + 1) * 128 + 10, 0x5158); m.w16(B.MAPBUF + (B.ROW2 + 2) * 128 + 10, 0x5158); req(m, 28)   # 두 자리 다 막힘
 print('남의 지도 칸: 우리 칸', ours(m), '남의 칸 유지', hex(m.r16(B.MAPBUF + (B.ROW + 1) * 128 + 10)))
 ok &= ours(m) == 0 and m.r16(B.MAPBUF + (B.ROW + 1) * 128 + 10) == 0x5158
 
@@ -122,5 +122,17 @@ ok &= m.r32(B.VBL_SLOT) == 0x06012340 and abs(n - (e + 1) // 2) <= 1
 # 8) 받아들여지지 않은 요청(바쁨)은 자막 안 바꿈
 m = fresh(); req(m, 72); a = ours(m); m.w16(0x06023616, 1); m.w16(0x06023F3A, 0); req(m, 29)
 print('바쁠 때 요청: 72 자막 유지', ours(m) == a and m.r32(B.STATE) == 1); ok &= ours(m) == a
+
+# 9) 1‥4행이 막히면(보스 체력 바 = 2행) 4‥7행에 그림, 남의 칸은 그대로
+m = fresh()
+for c in range(10, 31): m.w16(B.MAPBUF + 2 * 128 + c * 2, 0x01CC)
+req(m, 28)
+r47 = sum(1 for rr in range(B.ROW2, B.ROW2 + 4) for c in range(B.COLS) if m.r16(B.MAPBUF + rr * 128 + c * 2) & 0xFF80 == B.MAPV)
+bar = all(m.r16(B.MAPBUF + 2 * 128 + c * 2) == 0x01CC for c in range(10, 31))
+print('보스 체력 바: 4‥7행 우리 칸', r47, '· 체력 바 유지', bar); ok &= r47 > 0 and bar
+preview(m, os.path.join(ROOT, 'work', 'pv_subs_boss.png'))
+end = m.r32(B.STATE + 8)
+for f in range(end + 3): frame(m)
+print('  끝 뒤 우리 칸', ours(m), '· 체력 바 유지', all(m.r16(B.MAPBUF + 2 * 128 + c * 2) == 0x01CC for c in range(10, 31))); ok &= ours(m) == 0
 
 print('전부 통과' if ok else '★실패 있음')
