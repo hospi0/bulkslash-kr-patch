@@ -258,6 +258,22 @@ def text_patches(slot_of, base):
                 if zi < len(streams[q]) - 1: new.append(orig[2 * zi + 1])
             f[o0:o0 + len(new)] = bytes(new)
         files[fn] = f
+    # 메뉴·저장 문구(TITLE.ALL): 번역문을 옮기고 그 문자열을 가리키는 포인터를 전부 바꿈. 줄바꿈 없음 · max = 칸 수 상한(라벨 검은 바탕 = 글자 수)
+    f = bytearray(open(os.path.join(ISO, 'TITLE.ALL'), 'rb').read())
+    s, c, a, z = struct.unpack_from('>4I', f, 0); po = s * 2048
+    mx = {ln.split('\t')[0]: int(ln.split('\t')[3]) for ln in open(os.path.join(ROOT, 'work', 'trans', 'text_menu.tsv'), encoding='utf-8').read().splitlines()[1:]}
+    ja = {ln.split('\t')[0]: ln.split('\t')[1] for ln in open(os.path.join(ROOT, 'work', 'trans', 'text_menu.tsv'), encoding='utf-8').read().splitlines()[1:]}
+    for k in sorted(mx):
+        ob = ja[k].encode('cp932') + b'\0'
+        i = f.find(ob, po); assert i > 0 and f.find(ob, i + 1) < 0, (k, '원문 위치')
+        oa = a + i - po
+        refs = [q for q in range(po, po + c * 2048, 4) if struct.unpack_from('>I', f, q)[0] == oa]
+        assert refs, (k, '포인터 없음')
+        t = TX[k]; body = b''.join(enc_char(ch, slot_of) for ch in t)
+        assert len(body) // 2 <= mx[k], ('메뉴 문구 칸 수 넘음', k, t, len(body) // 2, mx[k])
+        na = put(body + b'\0'); report.append((k, [t]))
+        for q in refs: struct.pack_into('>I', f, q, na)
+    files['TITLE.ALL'] = f
     return bytes(blob), files, report
 
 
