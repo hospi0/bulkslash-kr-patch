@@ -825,7 +825,7 @@ def build():
             if key == sec.get(k) and n not in T: T[n] = T[k]
     # 글자 → 칸
     TX = load_trans('text_')
-    chars = sorted(set(c for t in list(T.values()) + list(TX.values()) for c in t if c not in ' |'))
+    chars = sorted(set(c for t in list(T.values()) + list(TX.values()) for c in t if c not in ' |^'))
     chars = [c for c in chars if '가' <= c <= '힣' or any(c in t for t in T.values())]   # 화면 글의 부호는 원래 전각 글자 그대로
     slots = free_slots(nfont)
     assert len(chars) <= len(slots), (len(chars), len(slots))
@@ -885,6 +885,8 @@ def build():
     exe[REQ - 0x06004000:REQ - 0x06004000 + 12] = stub(lab['req'])
     exe[SRV - 0x06004000:SRV - 0x06004000 + 12] = stub(lab['srv'])
     open(os.path.join(OUTD, 'KANJI.FON'), 'wb').write(font)
+    with open(os.path.join(ROOT, 'work', 'slot_map.tsv'), 'w', encoding='utf-8') as fo:   # 미리보기·검산용 글자 → 칸
+        fo.write(''.join(c + chr(9) + str(n) + chr(10) for c, n in slot_of.items()))
     open(os.path.join(OUTD, '1ST.BIN'), 'wb').write(exe)
     for fn, d in tfiles.items():
         open(os.path.join(OUTD, fn), 'wb').write(d)

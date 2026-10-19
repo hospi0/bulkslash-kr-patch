@@ -11,15 +11,17 @@ SRC = r'C:\claude\roms\ss\Bulk Slash (Japan)'
 BASE = 'Bulk Slash (Japan)'
 OUT = r'F:\hospi\roms\ss roms\Bulk Slash (Japan)'
 FILES = [('1ST.BIN', 22, 356352), ('KANJI.FON', 67116, 249792)] + [  # (이름, LBA, 크기) — tools/iso.py list
-    ('ALL.ST1', 15570, 2136064), ('ALL.ST2', 16613, 2129920), ('ALL.ST3', 17653, 2144256), ('ALL.ST4', 18700, 2140160), ('ALL.ST5', 19745, 2136064), ('ALL.ST6', 20788, 2146304), ('ALL.ST7', 21836, 2181120), ('SEL_DEMO.ALL', 22901, 1615872), ('TITLE.ALL', 24114, 804864)]   # 브리핑·합류 포인터 표만 바뀜
+    ('ALL.ST1', 15570, 2136064), ('ALL.ST2', 16613, 2129920), ('ALL.ST3', 17653, 2144256), ('ALL.ST4', 18700, 2140160), ('ALL.ST5', 19745, 2136064), ('ALL.ST6', 20788, 2146304), ('ALL.ST7', 21836, 2181120), ('SEL_DEMO.ALL', 22901, 1615872), ('TITLE.ALL', 24114, 804864)]   # 브리핑·합류·메뉴 포인터 표만 바뀜
+MOVIES = [('CORON_ED.CPK', 58785, 4251012), ('KINA_ED.CPK', 60861, 4958824), ('MAIN_ED.CPK', 32010, 19477184), ('METHI_ED.CPK', 48300, 6163152), ('NIRA_ED.CPK', 51310, 7343640), ('REONE_ED.CPK', 41521, 5347296), ('RIRA_ED.CPK', 44132, 8535528), ('RUPIA_ED.CPK', 54896, 7963540)]   # 엔딩 동영상(tools/moviesub.py 가 원본 크기로 맞춰 둠) — 구운 것만
 
 
 def main():
     t_src = os.path.join(SRC, BASE + ' (Track 1).bin')
     ok, bad = cdmode1.verify(t_src, range(16, 16 + 200))
     assert bad == 0, 'EDC/ECC 규약 검산 실패'
-    new = {n: open(os.path.join(ROOT, 'work', 'kr', n), 'rb').read() for n, _, _ in FILES}
-    for n, lba, size in FILES:
+    files = FILES + [m for m in MOVIES if os.path.exists(os.path.join(ROOT, 'work', 'kr', m[0]))]
+    new = {n: open(os.path.join(ROOT, 'work', 'kr', n), 'rb').read() for n, _, _ in files}
+    for n, lba, size in files:
         assert len(new[n]) == size, (n, len(new[n]), size)
     if '--write' not in sys.argv:
         print('검산만(규약 %d/%d) — 기록하려면 --write' % (ok, ok + bad)); return
@@ -31,7 +33,7 @@ def main():
         if not os.path.exists(d) or os.path.getsize(d) != os.path.getsize(os.path.join(SRC, fn)):
             shutil.copyfile(os.path.join(SRC, fn), d)
     f = open(t1, 'r+b'); changed = 0
-    for n, lba, size in FILES:
+    for n, lba, size in files:
         d = new[n]
         for k in range((size + 2047) // 2048):
             f.seek((lba + k) * 2352); s = bytearray(f.read(2352))

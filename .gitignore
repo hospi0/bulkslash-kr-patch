@@ -7,3 +7,8 @@ work/states/
 my files/
 work/*.png
 work/kr/
+work/movie/frames/
+work/movie/sub/
+work/movie/*.wav
+work/movie/*.png
+work/slot_map.tsv
