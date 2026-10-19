@@ -109,7 +109,7 @@ def render(name, n, crop=None):
                     else:
                         e = cram[((I['craof'] << 8) + (pal >> 4 << 8) + px) & 0x7FF]
                     col = rgb(e); col[px == 0] = 0
-                    yy = (cy * tiles + (vf and 1 - ty or ty)) * 8; xx = (cx * tiles + (hf and 1 - tx or tx)) * 8
+                    yy = (cy * tiles + (tiles - 1 - ty if vf else ty)) * 8; xx = (cx * tiles + (tiles - 1 - tx if hf else tx)) * 8
                     out[yy:yy + 8, xx:xx + 8] = col
     return Image.fromarray(out), dict(I, base=hex(base), one=one, cells=cells)
 
