@@ -96,6 +96,12 @@ def glyph(ch):
     im = Image.new('L', (16, 16), 0); dr = ImageDraw.Draw(im); dr.fontmode = '1'
     dr.text((4 if half(ch) else 8, 8), ch, font=KFONT, fill=255, anchor='mm')
     a = np.array(im) > 0
+    # 테두리 1 px 자리: 잉크를 1‥14행·1‥14열(반각 1‥7열 — 숫자 폭 7 px 라 오른쪽 테두리는 잘림) 안으로 옮김 — 0행에 붙으면 위 테두리가 잘림(실기 2026-10-19)
+    ys, xs = np.nonzero(a)
+    if len(ys):
+        dy = max(0, 1 - ys.min()) - max(0, ys.max() - 14)
+        dx = max(0, 1 - xs.min()) - max(0, xs.max() - (7 if half(ch) else 14))
+        a = np.roll(np.roll(a, dy, 0), dx, 1)
     return b''.join(struct.pack('>H', int(''.join('1' if x else '0' for x in r), 2)) for r in a)
 
 
