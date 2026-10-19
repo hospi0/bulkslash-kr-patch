@@ -4,7 +4,7 @@ SH-2 미니 어셈블러 (2026-07-12, shining-kr-patch 에서 가져옴 · 2026-
 지원 서브셋: mov/mov.b/.w/.l(레지스터·@Rn·@Rn+·@-Rn·@(disp,Rn)·@(disp,pc)·#imm),
   add/sub/cmp/tst/and/or/xor/shll/shlr/shll2/shll8/shll16/extu/exts,
   bra/bsr/bt/bf/bt.s/bf.s(라벨), jmp/jsr @Rn, rts, nop, sts.l/lds.l pr.
-  .long <imm|label>(리터럴풀), 라벨(name:).
+  .long <imm|label>(리터럴풀), .pool(중간 리터럴 풀), 라벨(name:).
 `mov.l #<imm/label>,Rn` → 자동 PC상대 리터럴 로드(풀에 .long 추가).
 
 사용(모듈): asm(text, base_addr) -> bytes.  라벨/리터럴 2패스 처리.
@@ -30,6 +30,7 @@ def assemble(text, base=0):
     pc = base
     lit_pool = []  # (value_or_label, addr)
     pending = []
+    waiting, slot, mid_pool, mid_val = [], {}, [], {}
     for ln in lines:
         m = re.match(r'^(\w+):$', ln)
         if m:
@@ -38,7 +39,16 @@ def assemble(text, base=0):
         if ln.startswith('.long'):
             val = ln.split(None, 1)[1].strip()
             pending.append(('long', val, pc)); pc += 4; continue
+        if ln == '.pool':                             # 2026-10-19: 중간 풀 — 앞의 mov.l # 리터럴을 여기 둠(앞 명령이 rts/bra 지연 슬롯 뒤여야)
+            if pc & 2:
+                pending.append(('ins', 'nop', pc)); pc += 2
+            for at in waiting:
+                slot[at] = pc; mid_pool.append((pc, at)); pc += 4
+            waiting = []
+            continue
         # mov.l #imm,Rn -> PC-rel load: reserve; literal appended at pool
+        if re.match(r'^mov\.l\s+#', ln, re.I):
+            waiting.append(pc)
         pending.append(('ins', ln, pc)); pc += 2
     end_code = pc
     # 리터럴풀 = 코드 뒤 4바이트 정렬
@@ -46,7 +56,9 @@ def assemble(text, base=0):
     # 리터럴 필요한 ins 스캔
     litmap = {}  # ins_index -> pool addr
 
-    def add_lit(v):
+    def add_lit(v, at):
+        if at in slot:
+            mid_val[slot[at]] = v; return slot[at]
         addr = pool_base + len(lit_pool) * 4
         lit_pool.append(v)
         return addr
@@ -91,7 +103,7 @@ def assemble(text, base=0):
             # mov.l #imm/label,Rn -> PC-rel load (mov.l @(disp,pc),Rn), 리터럴 풀
             if src.startswith('#'):
                 v = src[1:]
-                laddr = add_lit(v)
+                laddr = add_lit(v, at)
                 disp = (laddr - ((at & ~3) + 4)) // 4
                 assert 0 <= disp < 256, 'lit disp %d out of range' % disp
                 return 0xd000 | (R(dst) << 8) | (disp & 0xff)  # mov.l @(disp,pc),Rn
@@ -199,6 +211,10 @@ def assemble(text, base=0):
         if kind == 'long':
             v = labels[ln] if ln in labels else int(ln, 0)
             struct.pack_into('>I', buf, at - base, v & 0xffffffff)
+    # 중간 풀
+    for a, v in mid_val.items():
+        val = labels[v] if v in labels else int(v, 0)
+        struct.pack_into('>I', buf, a - base, val & 0xffffffff)
     # 리터럴 풀
     for i, v in enumerate(lit_pool):
         val = labels[v] if v in labels else int(v, 0)

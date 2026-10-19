@@ -32,6 +32,7 @@ FONT = 0x00200000
 REGION, REGION_END = FONT + 658 * 32, FONT + 1410 * 32          # JIS 0x28‥0x2F 행(빈 글자)
 STATE = REGION                                                   # 48 B: +0 켜짐 +4 지금 시각 +8 끝 +12 다음 쪽 +16 시작 VBlank +20 VBlank 수 +24 시계 방식 +28 지금 쪽 +32 그린 지도 칸 수 +36 아래 자리 강제
 CODE = REGION + 48
+VMAP = 0x25E7C000                                                # NBG0 지도 VRAM(메인 루프가 MAPBUF 를 여기로 복사)
 MAPBUF = 0x060B7000; ROW = 1; ROW2 = 3; COLS = 40               # 기본 = 지도 1‥4행(화면 y 8‥40 — 3행 이하면 STAGE CLEAR 스프라이트에 가림) · 2행에 보스 체력 바가 있으면 3‥6행(바 바로 밑) — 사용자 2026-10-19
 CELLS = 0x25E77000; MAXGLYPH = 32; MAPV = 0x0B80
 REQ, REQ_CONT = 0x0600777C, 0x06007788
@@ -507,6 +508,7 @@ so_scy:
 so_out:
   rts
   nop
+  .pool                     ; 앞 리터럴(코드가 1 KB 넘어 끝 풀까지 못 닿음)
 
 frame:
   sts.l pr,@-r15
@@ -537,10 +539,17 @@ fr_have:
   nop
   bsr keep
   nop
+  bsr sync_vram
+  nop
   bra fr_out
   nop
 fr_clear:
   bsr clear
+  nop
+  bsr stage_ok              ; 스테이지 화면에서 끝났을 때만 VRAM 의 우리 칸도 지움
+  nop
+  bf fr_out
+  bsr sync_vram
   nop
 fr_out:
   lds.l @r15+,pr
@@ -573,6 +582,43 @@ cm_next:
   mov.l #128,r0
   dt r2
   bf/s cm_row
+  add r0,r1
+  rts
+  nop
+
+sync_vram:                  ; 1‥6행: 버퍼나 VRAM 한쪽이 우리 칸인데 다르면 버퍼 값을 VRAM 에 바로 씀 — 게임오버 화면은 메인 루프 지도 복사(0x06034830)를 안 부름
+  mov.l {L(MAPBUF + min(ROW, ROW2) * 128)},r1
+  mov.l {L(VMAP - MAPBUF)},r4
+  mov #{abs(ROW2 - ROW) + 4},r2
+  mov.l #0xFF80,r6
+  mov.l {L(MAPV)},r7
+sv_row:
+  mov #{COLS},r3
+  mov r1,r5
+sv_col:
+  mov.w @r5,r11
+  mov r5,r10
+  add r4,r10
+  mov.w @r10,r12
+  cmp/eq r11,r12
+  bt sv_next
+  mov r11,r0
+  and r6,r0
+  cmp/eq r7,r0
+  bt sv_w
+  mov r12,r0
+  and r6,r0
+  cmp/eq r7,r0
+  bf sv_next
+sv_w:
+  mov.w r11,@r10
+sv_next:
+  dt r3
+  bf/s sv_col
+  add #2,r5
+  mov.l #128,r0
+  dt r2
+  bf/s sv_row
   add r0,r1
   rts
   nop

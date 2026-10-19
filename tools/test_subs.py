@@ -162,4 +162,15 @@ for c in range(10, 31): m.w16(B.MAPBUF + 2 * 128 + c * 2, 0)
 frame(m); r36b = sum(1 for rr in range(3, 7) for c in range(B.COLS) if m.r16(B.MAPBUF + rr * 128 + c * 2) & 0xFF80 == B.MAPV)
 print('일부 지워짐 → 3‥6행 옮김: 1‥2행', r12, '· 3‥6행', r36, '→ 다음 프레임', r36b); ok &= r12 == 0 and r36 > 0 and r36b == r36
 
+# 게임오버 화면은 메인 루프 지도 복사가 안 돎 → 프레임 훅이 VRAM 의 우리 칸을 직접 맞춤(남의 칸은 안 건드림)
+VR = lambda m, rr, c: m.r16(B.VMAP + rr * 128 + c * 2)
+m = fresh(); m.w16(B.VMAP + 5 * 128 + 70, 0x5158); m.w16(B.MAPBUF + 5 * 128 + 70, 0x1234)   # 남의 칸: 버퍼≠VRAM 이어도 그대로
+req(m, 28); frame(m)
+same = all(VR(m, rr, c) == m.r16(B.MAPBUF + rr * 128 + c * 2) for rr in range(1, 7) for c in range(B.COLS)
+           if m.r16(B.MAPBUF + rr * 128 + c * 2) & 0xFF80 == B.MAPV)
+for _ in range(400): frame(m)
+vleft = sum(1 for rr in range(1, 7) for c in range(B.COLS) if VR(m, rr, c) & 0xFF80 == B.MAPV)
+print('VRAM 직접 맞춤: 그릴 때 같음', same, '· 끝 뒤 VRAM 우리 칸', vleft, '· 남의 칸', hex(VR(m, 5, 35)))
+ok &= same and ours(m) == 0 and vleft == 0 and VR(m, 5, 35) == 0x5158
+
 print('전부 통과' if ok else '★실패 있음')
